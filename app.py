@@ -19,7 +19,7 @@ st.write("Masukkan tanggal prediksi untuk mengetahui apakah harga Bitcoin akan n
 
 # Input prediksi
 prediction_date = st.date_input("Pilih tanggal prediksi (maksimal 30 hari ke depan):")
-prediction_days = (prediction_date - pd.Timestamp.today().normalize()).days
+prediction_days = (pd.to_datetime(prediction_date) - pd.Timestamp.now().normalize()).days
 
 if prediction_days < 0 or prediction_days > 30:
     st.warning("Tanggal prediksi harus dalam 0 hingga 30 hari ke depan.")
