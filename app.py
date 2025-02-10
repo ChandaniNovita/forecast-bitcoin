@@ -7,83 +7,72 @@ from tensorflow.keras.layers import LSTM, Dense
 from sklearn.preprocessing import MinMaxScaler
 import streamlit as st
 
-# Load the dataset
-st.title("Bitcoin Price Forecasting App")
+# Simulasi data historis harga Bitcoin
+np.random.seed(42)
+dates = pd.date_range(start='2023-01-01', periods=365, freq='D')
+prices = 20000 + np.cumsum(np.random.normal(0, 200, 365))  # Simulasi harga Bitcoin
+btc_data = pd.DataFrame({'Date': dates, 'Close': prices})
 
-uploaded_file = st.file_uploader("Upload your BTC Dataset (CSV format)", type=["csv"])
-if uploaded_file is not None:
-    # Load data
-    df = pd.read_csv(uploaded_file)
-    st.write("Data Preview:")
-    st.write(df.head())
+# Streamlit UI
+st.title("Bitcoin Price Prediction System")
+st.write("Masukkan tanggal prediksi untuk mengetahui apakah harga Bitcoin akan naik atau turun.")
 
-    # Ensure essential columns
-    if 'Date' not in df.columns or 'Close' not in df.columns:
-        st.error("Dataset must have 'Date' and 'Close' columns.")
-    else:
-        # Data preprocessing
-        df['Date'] = pd.to_datetime(df['Date'])
-        df = df.sort_values('Date')
-        df.set_index('Date', inplace=True)
+# Input prediksi
+prediction_date = st.date_input("Pilih tanggal prediksi (maksimal 30 hari ke depan):")
+prediction_days = (prediction_date - pd.Timestamp.today().normalize()).days
 
-        # Prepare closing price for forecasting
-        data = df[['Close']].values
+if prediction_days < 0 or prediction_days > 30:
+    st.warning("Tanggal prediksi harus dalam 0 hingga 30 hari ke depan.")
+else:
+    # Preprocessing data
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(btc_data[['Close']].values)
 
-        # Normalize the data
-        scaler = MinMaxScaler(feature_range=(0, 1))
-        scaled_data = scaler.fit_transform(data)
+    # Membuat data sequence untuk LSTM
+    window_size = 60
 
-        # Prepare training data
-        train_size = int(len(scaled_data) * 0.8)
-        train_data = scaled_data[:train_size]
+    def create_sequences(data, window_size):
+        x = []
+        for i in range(window_size, len(data)):
+            x.append(data[i - window_size:i, 0])
+        return np.array(x)
 
-        # Function to create sequences
-        def create_sequences(data, window_size=60):
-            x, y = [], []
-            for i in range(window_size, len(data)):
-                x.append(data[i - window_size:i, 0])
-                y.append(data[i, 0])
-            return np.array(x), np.array(y)
+    x_data = create_sequences(scaled_data, window_size)
+    x_data = np.reshape(x_data, (x_data.shape[0], x_data.shape[1], 1))
 
-        x_train, y_train = create_sequences(train_data)
-        x_train = np.reshape(x_train, (x_train.shape[0], x_train.shape[1], 1))
+    # Model LSTM
+    model = Sequential([
+        LSTM(50, return_sequences=True, input_shape=(x_data.shape[1], 1)),
+        LSTM(50, return_sequences=False),
+        Dense(25),
+        Dense(1)
+    ])
 
-        # Build LSTM Model
-        model = Sequential()
-        model.add(LSTM(units=50, return_sequences=True, input_shape=(x_train.shape[1], 1)))
-        model.add(LSTM(units=50, return_sequences=False))
-        model.add(Dense(units=25))
-        model.add(Dense(units=1))
+    # Compile dan training
+    model.compile(optimizer='adam', loss='mean_squared_error')
+    model.fit(x_data, scaled_data[window_size:], epochs=1, batch_size=32, verbose=0)
 
-        # Compile the model
-        model.compile(optimizer='adam', loss='mean_squared_error')
+    # Prediksi harga
+    last_sequence = scaled_data[-window_size:]
+    last_sequence = np.reshape(last_sequence, (1, last_sequence.shape[0], 1))
+    prediction_scaled = model.predict(last_sequence)
+    prediction = scaler.inverse_transform(prediction_scaled)[0][0]
 
-        # Train the model
-        with st.spinner("Training LSTM model..."):
-            model.fit(x_train, y_train, batch_size=32, epochs=5)
+    # Menentukan aksi beli/jual
+    last_price = btc_data['Close'].iloc[-1]
+    action = "Beli" if prediction > last_price else "Jual"
+    st.subheader(f"Prediksi Harga pada {prediction_date}: ${prediction:.2f}")
+    st.write(f"Aksi yang disarankan: **{action}**")
 
-        # Prepare testing data
-        test_data = scaled_data[train_size - 60:]
-        x_test, y_test = create_sequences(test_data)
-        x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1))
+    # Plot hasil
+    future_dates = pd.date_range(start=btc_data['Date'].iloc[-1], periods=31, freq='D')[1:]
+    predicted_prices = np.append(prices, prediction)
 
-        # Predict and inverse transform the results
-        predictions = model.predict(x_test)
-        predictions = scaler.inverse_transform(predictions)
-
-        # Plotting the results
-        st.subheader("Forecast vs Actual Prices")
-        train = df[:train_size]
-        valid = df[train_size:]
-        valid['Predictions'] = predictions
-
-        plt.figure(figsize=(12, 6))
-        plt.plot(train['Close'], label='Training Data')
-        plt.plot(valid['Close'], label='Actual Prices', color='blue')
-        plt.plot(valid['Predictions'], label='Predicted Prices', color='orange')
-        plt.xlabel('Date')
-        plt.ylabel('Close Price USD')
-        plt.legend()
-        st.pyplot(plt.gcf())
-
-        st.success("Model training and forecasting complete!")
+    plt.figure(figsize=(12, 6))
+    plt.plot(btc_data['Date'], btc_data['Close'], label='Harga Historis')
+    plt.plot(future_dates[:1], [prediction], 'ro', label='Prediksi Harga')
+    plt.title('Pergerakan Harga Bitcoin')
+    plt.xlabel('Tanggal')
+    plt.ylabel('Harga (USD)')
+    plt.legend()
+    st.pyplot(plt.gcf())
