@@ -32,12 +32,13 @@ else:
     window_size = 60
 
     def create_sequences(data, window_size):
-        x = []
+        x, y = [], []
         for i in range(window_size, len(data)):
             x.append(data[i - window_size:i, 0])
-        return np.array(x)
+            y.append(data[i, 0])
+        return np.array(x), np.array(y)
 
-    x_data = create_sequences(scaled_data, window_size)
+    x_data, y_data = create_sequences(scaled_data, window_size)
     x_data = np.reshape(x_data, (x_data.shape[0], x_data.shape[1], 1))
 
     # Model LSTM
@@ -50,7 +51,7 @@ else:
 
     # Compile dan training
     model.compile(optimizer='adam', loss='mean_squared_error')
-    model.fit(x_data, scaled_data[window_size:], epochs=1, batch_size=32, verbose=0)
+    model.fit(x_data, y_data, epochs=1, batch_size=32, verbose=0)
 
     # Prediksi harga
     last_sequence = scaled_data[-window_size:]
